@@ -1,15 +1,20 @@
-import React, { useState } from "react";
+import type { CSSProperties, ChangeEvent } from "react";
+import { useState } from "react";
 import * as xlsx from "xlsx";
 
+type ExcelRow = Record<string, unknown>;
+type ExcelJsonData = Record<string, ExcelRow[]>;
+type StyleMap = Record<string, CSSProperties>;
+
 function App() {
-	const [fileData, setFileData] = useState(null);
+	const [fileData, setFileData] = useState<ExcelJsonData | null>(null);
 	const [fileName, setFileName] = useState("");
 	const [isLoading, setIsLoading] = useState(false);
 	const [error, setError] = useState("");
 
 	// Fungsi untuk menangani saat pengguna memilih file
-	const handleFileUpload = (event: any) => {
-		const file = event.target.files[0];
+	const handleFileUpload = (event: ChangeEvent<HTMLInputElement>) => {
+		const file = event.target.files?.[0];
 		if (!file) return;
 
 		// Validasi ekstensi file
@@ -31,19 +36,26 @@ function App() {
 		// Proses konversi setelah file berhasil dibaca oleh browser
 		reader.onload = (e) => {
 			try {
-				const data = new Uint8Array(e.target.result);
+				const result = e.target?.result;
+				if (!(result instanceof ArrayBuffer)) {
+					throw new Error("File tidak dapat dibaca sebagai ArrayBuffer.");
+				}
+
+				const data = new Uint8Array(result);
 				const workbook = xlsx.read(data, { type: "array" });
-				const outputData = {};
+				const outputData: ExcelJsonData = {};
 
 				// Iterasi setiap sheet dan ubah ke JSON
 				workbook.SheetNames.forEach((sheetName) => {
 					const worksheet = workbook.Sheets[sheetName];
-					const jsonData = xlsx.utils.sheet_to_json(worksheet, { defval: "" });
+					const jsonData = xlsx.utils.sheet_to_json<ExcelRow>(worksheet, {
+						defval: "",
+					});
 					outputData[sheetName] = jsonData;
 				});
 
 				setFileData(outputData);
-			} catch (err) {
+			} catch {
 				setError("Gagal memproses file Excel. Pastikan file tidak rusak.");
 			} finally {
 				setIsLoading(false);
@@ -123,7 +135,7 @@ function App() {
 }
 
 // Objek gaya dasar agar tampilan langsung rapi
-const styles = {
+const styles: StyleMap = {
 	container: {
 		minHeight: "100vh",
 		backgroundColor: "#f3f4f6",
