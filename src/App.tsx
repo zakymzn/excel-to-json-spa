@@ -1,48 +1,35 @@
-import type { CSSProperties, ChangeEvent, MouseEvent } from "react";
-import { useState } from "react";
+import {
+	useState,
+	type ChangeEvent,
+	type MouseEvent,
+	type CSSProperties,
+} from "react";
 import * as xlsx from "xlsx";
 
-type ExcelRow = Record<string, unknown>;
-type ExcelJsonData = Record<string, ExcelRow[]>;
-
-type ConvertedFile = {
+// Mendefinisikan struktur data untuk setiap file yang diunggah
+interface ConvertedFile {
 	id: string;
 	name: string;
-	error: null;
-	convertedData: ExcelJsonData;
-};
+	error: string | null;
+	convertedData: Record<string, unknown[]> | null; // Data JSON per sheet
+}
 
-type FailedFile = {
-	id: string;
-	name: string;
-	error: string;
-	convertedData: null;
-};
+export default function App() {
+	const [filesList, setFilesList] = useState<ConvertedFile[]>([]);
+	const [isLoading, setIsLoading] = useState<boolean>(false);
+	const [activeIndex, setActiveIndex] = useState<number | null>(null);
 
-type ExcelFileItem = ConvertedFile | FailedFile;
-type StyleMap = Record<string, CSSProperties>;
-
-function App() {
-	const [filesList, setFilesList] = useState<ExcelFileItem[]>([]); // Menyimpan daftar file [{ id, name, data, error }]
-	const [isLoading, setIsLoading] = useState(false);
-	const [activeIndex, setActiveIndex] = useState<number | null>(null); // File yang sedang aktif di pratinjau
-
-	// Fungsi untuk menangani unggahan banyak file sekaligus
 	const handleFileUpload = async (event: ChangeEvent<HTMLInputElement>) => {
-		if (!event.target.files) return;
-
-		const uploadedFiles = Array.from(event.target.files);
+		const uploadedFiles = Array.from(event.target.files || []);
 		if (uploadedFiles.length === 0) return;
 
 		setIsLoading(true);
 
-		// Memproses setiap file secara paralel menggunakan Promise
 		const filePromises = uploadedFiles.map((file) => {
-			return new Promise<ExcelFileItem>((resolve) => {
+			return new Promise<ConvertedFile>((resolve) => {
 				const fileId = Math.random().toString(36).substring(2, 9);
 				const cleanName = file.name.replace(/\.[^/.]+$/, "");
 
-				// Validasi Ekstensi
 				if (
 					!file.name.toLowerCase().endsWith(".xlsx") &&
 					!file.name.toLowerCase().endsWith(".xls")
@@ -57,26 +44,19 @@ function App() {
 				}
 
 				const reader = new FileReader();
-				reader.onload = (e) => {
+				reader.onload = (e: ProgressEvent<FileReader>) => {
 					try {
-						const result = e.target?.result;
-						if (!(result instanceof ArrayBuffer)) {
-							throw new Error("File tidak dapat dibaca sebagai ArrayBuffer.");
-						}
+						if (!e.target?.result) throw new Error("Gagal membaca hasil");
 
-						const data = new Uint8Array(result);
+						const data = new Uint8Array(e.target.result as ArrayBuffer);
 						const workbook = xlsx.read(data, { type: "array" });
-						const outputData: ExcelJsonData = {};
+						const outputData: Record<string, unknown[]> = {};
 
-						// Iterasi setiap sheet di dalam file Excel ini
 						workbook.SheetNames.forEach((sheetName) => {
 							const worksheet = workbook.Sheets[sheetName];
-							outputData[sheetName] = xlsx.utils.sheet_to_json<ExcelRow>(
-								worksheet,
-								{
-									defval: "",
-								},
-							);
+							outputData[sheetName] = xlsx.utils.sheet_to_json(worksheet, {
+								defval: "",
+							});
 						});
 
 						resolve({
@@ -108,23 +88,19 @@ function App() {
 			});
 		});
 
-		// Tunggu semua file selesai diproses
 		const results = await Promise.all(filePromises);
 
 		setFilesList((prev) => {
 			const updatedList = [...prev, ...results];
-			// Otomatis aktifkan pratinjau ke file pertama dari hasil unggahan baru jika belum ada yang aktif
 			if (activeIndex === null) setActiveIndex(prev.length);
 			return updatedList;
 		});
 
 		setIsLoading(false);
-		// Reset nilai input agar file yang sama bisa diunggah ulang jika dibutuhkan
 		event.target.value = "";
 	};
 
-	// Fungsi utilitas untuk mengunduh satu file JSON
-	const downloadSingleFile = (file: ExcelFileItem) => {
+	const downloadSingleFile = (file: ConvertedFile) => {
 		if (!file.convertedData) return;
 		const jsonString = JSON.stringify(file.convertedData, null, 2);
 		const blob = new Blob([jsonString], { type: "application/json" });
@@ -139,7 +115,6 @@ function App() {
 		URL.revokeObjectURL(url);
 	};
 
-	// Fungsi untuk mengunduh semua file yang berhasil dikonversi sekaligus
 	const downloadAllFiles = () => {
 		filesList.forEach((file) => {
 			if (!file.error && file.convertedData) {
@@ -148,15 +123,12 @@ function App() {
 		});
 	};
 
-	// Fungsi untuk menghapus semua daftar file
 	const clearAllFiles = () => {
 		setFilesList([]);
 		setActiveIndex(null);
 	};
 
-	// Menghitung berapa banyak file yang sukses dikonversi
 	const successCount = filesList.filter((f) => !f.error).length;
-	const activeFile = activeIndex === null ? null : filesList[activeIndex];
 
 	return (
 		<div style={styles.container}>
@@ -167,7 +139,6 @@ function App() {
 					hasilnya secara massal.
 				</p>
 
-				{/* Zona Input File */}
 				<div style={styles.uploadArea}>
 					<input
 						type="file"
@@ -175,7 +146,7 @@ function App() {
 						onChange={handleFileUpload}
 						style={styles.fileInput}
 						id="file-upload"
-						multiple // Atribut krusial untuk memilih banyak file sekaligus
+						multiple
 					/>
 					<label htmlFor="file-upload" style={styles.uploadLabel}>
 						{isLoading ? "Memproses File..." : "Pilih Banyak File Excel"}
@@ -188,7 +159,6 @@ function App() {
 					)}
 				</div>
 
-				{/* Kontrol Aksi Massal */}
 				{successCount > 0 && (
 					<div style={styles.batchActionContainer}>
 						<span>
@@ -200,10 +170,8 @@ function App() {
 					</div>
 				)}
 
-				{/* Layout Utama Dashboard */}
 				{filesList.length > 0 && (
 					<div style={styles.dashboard}>
-						{/* Panel Kiri: Daftar File */}
 						<div style={styles.sidebar}>
 							<h3 style={styles.sectionTitle}>
 								Daftar File ({filesList.length})
@@ -231,7 +199,7 @@ function App() {
 										{!file.error && (
 											<button
 												onClick={(e: MouseEvent<HTMLButtonElement>) => {
-													e.stopPropagation(); // Mencegah terpicunya klik pada parent div
+													e.stopPropagation();
 													downloadSingleFile(file);
 												}}
 												style={styles.miniDownloadBtn}
@@ -244,22 +212,27 @@ function App() {
 							</div>
 						</div>
 
-						{/* Panel Kanan: Tempat Pratinjau Objek Aktif */}
 						<div style={styles.previewPanel}>
-							{activeFile && !activeFile.error ? (
+							{activeIndex !== null &&
+							filesList[activeIndex] &&
+							!filesList[activeIndex].error ? (
 								<>
 									<div style={styles.previewHeader}>
 										<span style={{ fontWeight: "600", color: "#374151" }}>
-											Pratinjau: {activeFile.name}.json
+											Pratinjau: {filesList[activeIndex].name}.json
 										</span>
 										<button
-											onClick={() => downloadSingleFile(activeFile)}
+											onClick={() => downloadSingleFile(filesList[activeIndex])}
 											style={styles.downloadButton}>
 											Unduh File Ini
 										</button>
 									</div>
 									<pre style={styles.preCode}>
-										{JSON.stringify(activeFile.convertedData, null, 2)}
+										{JSON.stringify(
+											filesList[activeIndex].convertedData,
+											null,
+											2,
+										)}
 									</pre>
 								</>
 							) : (
@@ -278,8 +251,8 @@ function App() {
 	);
 }
 
-// Desain Layout UI Dashboard Interaktif
-const styles: StyleMap = {
+// Menambahkan Record<string, CSSProperties> agar TypeScript mengenali properti CSS
+const styles: Record<string, CSSProperties> = {
 	container: {
 		minHeight: "100vh",
 		backgroundColor: "#f3f4f6",
@@ -326,7 +299,7 @@ const styles: StyleMap = {
 		padding: "12px 24px",
 		borderRadius: "8px",
 		cursor: "pointer",
-		fontWeight: "600",
+		fontWeight: 600,
 		fontSize: "15px",
 		transition: "background-color 0.2s",
 	},
@@ -337,7 +310,7 @@ const styles: StyleMap = {
 		padding: "12px 20px",
 		borderRadius: "8px",
 		cursor: "pointer",
-		fontWeight: "500",
+		fontWeight: 500,
 	},
 	batchActionContainer: {
 		backgroundColor: "#f0fdf4",
@@ -358,7 +331,7 @@ const styles: StyleMap = {
 		padding: "10px 18px",
 		borderRadius: "6px",
 		cursor: "pointer",
-		fontWeight: "600",
+		fontWeight: 600,
 	},
 	dashboard: {
 		display: "grid",
@@ -375,12 +348,13 @@ const styles: StyleMap = {
 		display: "flex",
 		flexDirection: "column",
 		height: "100%",
+		overflow: "hidden", // INI KUNCI PERBAIKAN SCROLL: Mengunci tinggi sidebar agar tidak meluber
 	},
 	sectionTitle: {
 		margin: 0,
 		padding: "16px",
 		fontSize: "14px",
-		fontWeight: "600",
+		fontWeight: 600,
 		color: "#4b5563",
 		borderBottom: "1px solid #e5e7eb",
 		textTransform: "uppercase",
@@ -388,8 +362,9 @@ const styles: StyleMap = {
 	},
 	fileListContainer: {
 		padding: "12px",
-		overflowY: "auto",
+		overflowY: "auto", // Berfungsi optimal setelah parent (sidebar) diberi overflow: hidden
 		flexGrow: 1,
+		minHeight: 0, // Memastikan flex item tidak melebihi container
 		display: "flex",
 		flexDirection: "column",
 		gap: "8px",
@@ -424,7 +399,7 @@ const styles: StyleMap = {
 	},
 	fileName: {
 		fontSize: "14px",
-		fontWeight: "500",
+		fontWeight: 500,
 		color: "#111827",
 		whiteSpace: "nowrap",
 		overflow: "hidden",
@@ -433,12 +408,12 @@ const styles: StyleMap = {
 	successTag: {
 		fontSize: "11px",
 		color: "#15803d",
-		fontWeight: "600",
+		fontWeight: 600,
 	},
 	errorTag: {
 		fontSize: "11px",
 		color: "#b91c1c",
-		fontWeight: "500",
+		fontWeight: 500,
 	},
 	miniDownloadBtn: {
 		background: "none",
@@ -452,6 +427,7 @@ const styles: StyleMap = {
 		flexDirection: "column",
 		height: "100%",
 		backgroundColor: "#ffffff",
+		overflow: "hidden", // Mengunci juga agar preCode scroll berjalan lancar
 	},
 	previewHeader: {
 		padding: "16px",
@@ -468,7 +444,7 @@ const styles: StyleMap = {
 		padding: "8px 14px",
 		borderRadius: "6px",
 		cursor: "pointer",
-		fontWeight: "500",
+		fontWeight: 500,
 		fontSize: "13px",
 	},
 	preCode: {
@@ -481,7 +457,7 @@ const styles: StyleMap = {
 		fontFamily:
 			"ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace",
 		fontSize: "13px",
-		lineHeight: "1.5",
+		lineHeight: 1.5,
 	},
 	emptyPreview: {
 		display: "flex",
@@ -494,5 +470,3 @@ const styles: StyleMap = {
 		fontSize: "15px",
 	},
 };
-
-export default App;
