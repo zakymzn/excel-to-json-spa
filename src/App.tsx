@@ -5,18 +5,19 @@ import {
 	type CSSProperties,
 } from "react";
 import * as xlsx from "xlsx";
+import JSZip from "jszip"; // Import library JSZip
 
-// Mendefinisikan struktur data untuk setiap file yang diunggah
 interface ConvertedFile {
 	id: string;
 	name: string;
 	error: string | null;
-	convertedData: Record<string, unknown[]> | null; // Data JSON per sheet
+	convertedData: Record<string, unknown[]> | null;
 }
 
 export default function App() {
 	const [filesList, setFilesList] = useState<ConvertedFile[]>([]);
 	const [isLoading, setIsLoading] = useState<boolean>(false);
+	const [isZipping, setIsZipping] = useState<boolean>(false); // State untuk loading ZIP
 	const [activeIndex, setActiveIndex] = useState<number | null>(null);
 
 	const handleFileUpload = async (event: ChangeEvent<HTMLInputElement>) => {
@@ -97,7 +98,7 @@ export default function App() {
 		});
 
 		setIsLoading(false);
-		event.target.value = "";
+		event.target.value = ""; // Reset input agar file sama bisa dipilih lagi
 	};
 
 	const downloadSingleFile = (file: ConvertedFile) => {
@@ -115,12 +116,44 @@ export default function App() {
 		URL.revokeObjectURL(url);
 	};
 
-	const downloadAllFiles = () => {
-		filesList.forEach((file) => {
-			if (!file.error && file.convertedData) {
-				downloadSingleFile(file);
-			}
-		});
+	// Fungsi baru untuk mengompres dan mengunduh sebagai ZIP
+	const downloadAllAsZip = async () => {
+		const validFiles = filesList.filter((f) => !f.error && f.convertedData);
+		if (validFiles.length === 0) return;
+
+		setIsZipping(true);
+
+		try {
+			const zip = new JSZip();
+
+			// Memasukkan setiap file JSON ke dalam instance JSZip
+			validFiles.forEach((file) => {
+				const jsonString = JSON.stringify(file.convertedData, null, 2);
+				zip.file(`${file.name}.json`, jsonString);
+			});
+
+			// Menghasilkan blob ZIP secara asinkron
+			const zipBlob = await zip.generateAsync({ type: "blob" });
+
+			// Memicu unduhan file ZIP
+			const url = URL.createObjectURL(zipBlob);
+			const link = document.createElement("a");
+			link.href = url;
+
+			// Penamaan file zip berdasarkan waktu agar unik
+			const timestamp = new Date().toISOString().slice(0, 10);
+			link.download = `excel-to-json-${timestamp}.zip`;
+
+			document.body.appendChild(link);
+			link.click();
+			document.body.removeChild(link);
+			URL.revokeObjectURL(url);
+		} catch (error) {
+			console.error("Gagal membuat file ZIP:", error);
+			alert("Terjadi kesalahan saat mengompres file.");
+		} finally {
+			setIsZipping(false);
+		}
 	};
 
 	const clearAllFiles = () => {
@@ -136,7 +169,7 @@ export default function App() {
 				<h1 style={styles.title}>Batch Excel to JSON Converter</h1>
 				<p style={styles.subtitle}>
 					Unggah banyak file .xlsx sekaligus, lihat pratinjau, dan unduh
-					hasilnya secara massal.
+					hasilnya dalam format ZIP.
 				</p>
 
 				<div style={styles.uploadArea}>
@@ -164,8 +197,13 @@ export default function App() {
 						<span>
 							Berhasil mengonversi <strong>{successCount}</strong> file.
 						</span>
-						<button onClick={downloadAllFiles} style={styles.downloadAllButton}>
-							Unduh Semua JSON ({successCount})
+						<button
+							onClick={downloadAllAsZip}
+							style={styles.downloadAllButton}
+							disabled={isZipping}>
+							{isZipping
+								? "Mengompres..."
+								: `Unduh Semua sebagai ZIP (${successCount})`}
 						</button>
 					</div>
 				)}
@@ -218,7 +256,7 @@ export default function App() {
 							!filesList[activeIndex].error ? (
 								<>
 									<div style={styles.previewHeader}>
-										<span style={{ fontWeight: "600", color: "#374151" }}>
+										<span style={{ fontWeight: 600, color: "#374151" }}>
 											Pratinjau: {filesList[activeIndex].name}.json
 										</span>
 										<button
@@ -251,7 +289,6 @@ export default function App() {
 	);
 }
 
-// Menambahkan Record<string, CSSProperties> agar TypeScript mengenali properti CSS
 const styles: Record<string, CSSProperties> = {
 	container: {
 		minHeight: "100vh",
@@ -276,7 +313,7 @@ const styles: Record<string, CSSProperties> = {
 		color: "#111827",
 		textAlign: "center",
 		fontSize: "28px",
-		fontWeight: "700",
+		fontWeight: 700,
 	},
 	subtitle: {
 		margin: "0 0 32px 0",
@@ -332,6 +369,7 @@ const styles: Record<string, CSSProperties> = {
 		borderRadius: "6px",
 		cursor: "pointer",
 		fontWeight: 600,
+		opacity: 1, // Diubah via React rendering logic jika disabled, tapi cukup gunakan disabled attribute
 	},
 	dashboard: {
 		display: "grid",
@@ -348,7 +386,7 @@ const styles: Record<string, CSSProperties> = {
 		display: "flex",
 		flexDirection: "column",
 		height: "100%",
-		overflow: "hidden", // INI KUNCI PERBAIKAN SCROLL: Mengunci tinggi sidebar agar tidak meluber
+		overflow: "hidden",
 	},
 	sectionTitle: {
 		margin: 0,
@@ -362,9 +400,9 @@ const styles: Record<string, CSSProperties> = {
 	},
 	fileListContainer: {
 		padding: "12px",
-		overflowY: "auto", // Berfungsi optimal setelah parent (sidebar) diberi overflow: hidden
+		overflowY: "auto",
 		flexGrow: 1,
-		minHeight: 0, // Memastikan flex item tidak melebihi container
+		minHeight: 0,
 		display: "flex",
 		flexDirection: "column",
 		gap: "8px",
@@ -427,7 +465,7 @@ const styles: Record<string, CSSProperties> = {
 		flexDirection: "column",
 		height: "100%",
 		backgroundColor: "#ffffff",
-		overflow: "hidden", // Mengunci juga agar preCode scroll berjalan lancar
+		overflow: "hidden",
 	},
 	previewHeader: {
 		padding: "16px",
